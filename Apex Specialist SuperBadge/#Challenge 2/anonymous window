@@ -1,0 +1,2 @@
+//After saving the code open execute anonymous window ( CTRl+E ) and run this method 
+System.enqueueJob(new WarehouseCalloutService());
