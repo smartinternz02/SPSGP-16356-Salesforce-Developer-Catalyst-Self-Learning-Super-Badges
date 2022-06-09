@@ -1,0 +1,13 @@
+public class AccountProcessor {
+    @future
+    public static void countContacts(list<Id> accountIds){
+        list<Account> accList = [select Id, Number_of_contacts__c, (select id from contacts) from Account where Id in :accountIds];
+
+        for(Account acc : accList){
+
+            acc.Number_of_contacts__c = acc.Contacts.size();
+
+        }
+        update accList;
+    }
+}
