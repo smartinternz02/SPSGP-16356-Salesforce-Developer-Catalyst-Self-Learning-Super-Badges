@@ -1,61 +1,105 @@
-public with sharing class MaintenanceRequestHelper {
-    public static void updateworkOrders(List<Case> updWorkOrders, Map<Id,Case> nonUpdCaseMap) {
-        Set<Id> validIds = new Set<Id>();
+public with sharing class MaintenanceRequestHelper {    
 
+    public static void updateWorkOrders(List<Case> caseList) {
 
-        For (Case c : updWorkOrders){
-        if (nonUpCaseMap.get(c.ID).Status ! + 'Closed'   c.Status == 'Closed'){
-                if (c.Type == 'Repair' || c.Type == 'Routine Maintenance'){
-                    validIds.add(c.Id);
+        Map<String,Integer> IDToCycleMap = getMinMaintenanceCycleByCaseID(caseList);        
 
+        List<case> newCasesList = new List<Case>();        
 
-                }       
-            }
-        }
+        for(Case oldCase : caseList){
 
-        if (!validIds.isEmpty()){
-            List<Case> newCases = new List<Case>();
-            Map<Id,Case> closedCasesM = new Map<Id,Case>([SELECT Id, Vehicle__c, Equipment__c, Equipment__r.Maintenance_Cycle__c,(SELECT Id,Equipment__c,Quantity__c FROM Equipment_Maintenance_Items__r) 
-                                                         FROM Case WHERE Id IN :validIds]);
-            Map<Id,Decimal> maintenanceCycles = new Map<ID,Decimal>();
-            AggregateResult[] results = [SELECT Maintenance_Request__c, MIN(Equipment__r.Maintenance_Cycle__c)cycle FROM Equipment_Maintenance_Item__c WHERE Maintenance_Request__c IN :ValidIds GROUP BY Maintenance_Request__c];
+            if(oldCase.status=='closed' && (oldCase.type=='Repair' || oldCase.type=='Routine Maintenance')){
 
-        for (AggregateResult ar : results){ 
-            maintenanceCycles.put((Id) ar.get('Maintenance_Request__c'), (Decimal) ar.get('cycle'));
-        }
+                Case newCase = new Case();
 
-            for(Case cc : closedCasesM.values()){
-                Case nc = new Case (
-                    ParentId = cc.Id,
-                Status = 'New',
-                    Subject = 'Routine Maintenance',
-                    Type = 'Routine Maintenance',
-                    Vehicle__c = cc.Vehicle__c,
-                    Equipment__c =cc.Equipment__c,
-                    Origin = 'Web',
-                    Date_Reported__c = Date.Today()
+                newCase.Status = 'New';
 
-                );
+                newCase.Origin = 'web';
 
-                If (maintenanceCycles.containskey(cc.Id)){
-                    nc.Date_Due__c = Date.today().addDays((Integer) maintenanceCycles.get(cc.Id));
-                }
+                newCase.Type = 'Routine Maintenance';
 
-                newCases.add(nc);
+                newCase.Subject = 'Routine Maintenance of Vehicle';
+
+                newCase.Vehicle__c = oldCase.Vehicle__c;
+
+                newCase.Date_Reported__c = Date.today();
+
+                newcase.Cloned_Case_Id__c = oldCase.Id;
+
+                newCase.Date_Due__c = IDToCycleMap.get(oldCase.Id) == null ? Date.today() : Date.today()+IDToCycleMap.get(oldCase.Id);           
+
+                newCasesList.add(newCase);
+
             }
 
-           insert newCases;
+        }       
 
-           List<Equipment_Maintenance_Item__c> clonedWPs = new List<Equipment_Maintenance_Item__c>();
-           for (Case nc : newCases){
-                for (Equipment_Maintenance_Item__c wp : closedCasesM.get(nc.ParentId).Equipment_Maintenance_Items__r){
-                    Equipment_Maintenance_Item__c wpClone = wp.clone();
-                    wpClone.Maintenance_Request__c = nc.Id;
-                    ClonedWPs.add(wpClone);
+		insert newCasesList;             
 
-                }
-            }
-            insert ClonedWPs;
-        }
+        updateEquipments(newCasesList);
+
     }
+
+    
+
+    //update Equipments : Reparent them with new Case
+
+    public static void updateEquipments(List<Case> newCasesList){
+
+     List<Equipment_Maintenance_Item__c> equipmentsList = [select ID, Maintenance_Request__c from Equipment_Maintenance_Item__c];
+
+     List<Equipment_Maintenance_Item__c> updatedEquipmentsList  = new List<Equipment_Maintenance_Item__c>();
+
+        for(Case c : newCasesList){
+
+            for(Equipment_Maintenance_Item__c e : equipmentsList ){
+
+                if(e.Maintenance_Request__c == c.Cloned_Case_Id__c){
+
+                    e.Maintenance_Request__c = c.Id;
+
+                    updatedEquipmentsList.add(e);
+
+                }
+
+            }
+
+        }
+
+        update updatedEquipmentsList;
+
+    }
+
+    
+
+    //Get min Maintenance Cycle by  Case IDs    
+
+    public static Map<String,Integer> getMinMaintenanceCycleByCaseID(List<Case> caseList){
+
+        Map<String,Integer> IDToCycleMap = new Map<String,Integer>();
+
+        List<String> CaseIDList = new List<String>();   
+
+        for(Case eachCase  : caseList){
+
+            caseIDList.add(eachCase.ID);
+
+        }
+
+        List<AggregateResult> result =[SELECT Maintenance_Request__r.ID CaseID, MIN(Equipment__r.Maintenance_Cycle__c)  Cycle FROM Equipment_Maintenance_Item__c WHERE 
+
+                                       Maintenance_Request__r.ID IN :caseIDList AND Equipment__r.Maintenance_Cycle__c != null group by Maintenance_Request__r.ID];
+
+               
+
+        for(AggregateResult a : result){
+
+            IDToCycleMap.put((String)a.get('CaseID'),Integer.valueOf(a.get('Cycle')));
+
+        }
+
+        return IDToCycleMap;
+
+    }    
+
 }
